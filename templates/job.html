@@ -38,12 +38,13 @@
 
     <br/>
 
-    <div class="row">
+    <div class="row" id="scans">
         {{if .Scans -}}
             {{ $jobName := .JobName }}
             {{range $scan := .Scans }}
                 <div class="col-sm-3">
                     <div class="card">
+                        <div id="image" style="display: none;">{{$scan}}</div>
                         <div class="card-body">
                             <h5 class="card-title">{{$scan}}</h5>
                             <img class="card-img-top" src="/preview?jobName={{$jobName}}&scan={{$scan}}"
@@ -143,7 +144,9 @@
                         <dt><i class="far fa-file-archive"></i> Zip file</dt>
                         <dd>Compress all images into a zip file.</dd>
                         <dt><i class="far fa-file-pdf"></i> Pdf document</dt>
-                        <dd>Create a pdf document with the images. Only <i>.jpeg</i> and <i>.png</i> images are supported.</dd>
+                        <dd>Create a pdf document with the images. Only <i>.jpeg</i> and <i>.png</i> images are
+                            supported.
+                        </dd>
                     </dl>
                 </div>
                 <div class="modal-body">
@@ -177,6 +180,28 @@
         );
         $("#toast").toast('show');
         {{ end }}
+
+        let scans = document.getElementById('scans');
+        Sortable.create(scans, {
+            onUpdate: function (event) {
+                console.log(event);
+
+                var order = '{"order":[]}';
+                var obj = JSON.parse(order);
+                $(".card").find("#image").each(function (i) {
+                    console.log($(this).text());
+                    obj['order'].push($(this).text());
+                });
+
+
+                $.ajax({
+                    url: "/api/jobs/{{.JobName}}/order",
+                    type: 'PUT',
+                    data: JSON.stringify(obj),
+                    contentType: 'application/json'
+                });
+            }
+        });
     });
 
     function download(jobName, scan) {

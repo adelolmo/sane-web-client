@@ -1,6 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
+	"database/sql"
+	"encoding"
 	"encoding/json"
 	"fmt"
 	"github.com/adelolmo/sane-web-client/debug"
@@ -11,6 +14,7 @@ import (
 	"github.com/adelolmo/sane-web-client/zipper"
 	"github.com/gobuffalo/packr"
 	"github.com/gorilla/mux"
+	_ "github.com/mattn/go-sqlite3"
 	"html/template"
 	"io/ioutil"
 	"log"
@@ -50,6 +54,8 @@ type configuration struct {
 	WorkDirectory   string
 }
 
+var db *sql.DB
+
 var indexTemplate *template.Template
 var jobTemplate *template.Template
 var jobsTemplate *template.Template
@@ -87,6 +93,40 @@ func init() {
 	}
 	settingsTemplate = template.Must(template.Must(template.New("settings").Parse(headerFile)).Parse(settingsFile))
 
+	databasePath := path.Join(os.Getenv("outputDir"), "sane.db")
+	fmt.Println("Database file: " + databasePath)
+	db, err = sql.Open("sqlite3", databasePath)
+	if err != nil {
+		panic(err)
+	}
+	if err = db.Ping(); err != nil {
+		panic(err)
+	}
+	fmt.Println("You connected to your database.")
+
+	stmt, _ := db.Prepare(
+		`create table if not exists jobs (
+			id TEXT NOT NULL PRIMARY KEY,
+			name TEXT NOT NULL PRIMARY KEY,
+			created_at TEXT NOT NULL
+		)`)
+	_, err = stmt.Exec()
+	if err != nil {
+		log.Fatalf("%q: %v\n", err, stmt)
+	}
+	stmt, _ = db.Prepare(
+		`create table if not exists images (
+			name TEXT NOT NULL PRIMARY KEY,
+			job_id TEXT NOT NULL,
+			resolution TEXT NOT NULL,
+			format TEXT NOT NULL,
+ 			created_at TEXT NOT NULL,
+ 			FOREIGN KEY (job_id) REFERENCES jobs (id)
+ 		)`)
+	_, err = stmt.Exec()
+	if err != nil {
+		log.Fatalf("%q: %v\n", err, stmt)
+	}
 }
 
 func main() {
@@ -135,7 +175,30 @@ func main() {
 
 	router.HandleFunc("/scanner", scannerHandler).Methods("GET")
 
+	router.HandleFunc("/api/jobs/{job}/order", apiJobsOrderHandler).Methods("PUT")
+
 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", port), router))
+}
+
+type jobOrder struct {
+	Order []string `json:"order"`
+}
+
+func apiJobsOrderHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	jobName := vars["job"]
+
+	var order jobOrder
+	if err := json.NewDecoder(r.Body).Decode(&order); err != nil {
+		http.Error(w, "cannot understand request", 400)
+		return
+	}
+
+	println(jobName)
+
+	for _, image := range order.Order {
+		println("image: " + image)
+	}
 }
 
 func homePage(w http.ResponseWriter, r *http.Request) {
@@ -228,7 +291,20 @@ func resumeJobPage(w http.ResponseWriter, r *http.Request) {
 
 func createJobHandler(w http.ResponseWriter, r *http.Request) {
 	jobName := r.FormValue("jobName")
-	if err := os.MkdirAll(path.Join(appConfiguration.OutputDirectory, jobName), os.ModePerm); err != nil {
+
+	hasher := sha256.New()
+	hasher.Write([]byte(jobName))
+
+	marshaler, ok := hasher.(encoding.TextMarshaler)
+	if !ok {
+		log.Fatal("first does not implement encoding.BinaryMarshaler")
+	}
+	jobId, err := marshaler.MarshalText()
+	if err != nil {
+		log.Fatal("unable to marshal hash:", err)
+	}
+
+	if err := os.MkdirAll(path.Join(appConfiguration.OutputDirectory, string(jobId)), os.ModePerm); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
