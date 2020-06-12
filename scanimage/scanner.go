@@ -117,7 +117,7 @@ func (s *Scan) Start(baseDir string, imageFilename string) {
 		debug.Info(strings.Join(command.Args, " "))
 		out, err := command.Output()
 		if err != nil {
-			debug.Error(fmt.Sprintf("Error executing scanimage command. Output: %s. Error:%v", out, err))
+			debug.Error(fmt.Sprintf("Error executing scanimage command. Output: %s. Error: %v", out, err))
 			return
 		}
 
